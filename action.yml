@@ -1,0 +1,47 @@
+name: "Docker build, tag and push"
+description: "Creates a docker image for a target using the provided Dockerfile caches locally, and optionally pushes to the registry."
+inputs:
+  image-name:
+    description: "The name of the image to build."
+    required: true
+  target:
+    description: "The name of the image to build."
+    required: true
+  cache:
+    description: "Do we want to save the build to local cache"
+    required: true
+  push:
+    description: "Do we want to push the image to a registry"
+    required: true
+outputs:
+  random-number:
+    description: "Random number"
+    value: ${{ steps.random-number-generator.outputs.random-id }}
+runs:
+  using: "composite"
+  steps:
+    - name: Docker meta
+      id: meta
+      uses: docker/metadata-action@v3
+      with:
+        images: ${{ inputs.image-name }}
+
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v1
+
+    - name: Build image for testing
+      id: docker_build_testing_image
+      uses: docker/build-push-action@v2
+      with:
+        context: .
+        file: Dockerfile
+        push: ${{ inputs.push }}
+        load: ${{ inputs.cache }}
+        cache-from: |
+          type=gha,scope=${{ inputs.image-name }}
+        cache-to: |
+          type=gha,scope=${{ inputs.image-name }}
+        target: ${{ inputs.image-name }}
