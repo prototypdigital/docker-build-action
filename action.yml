@@ -7,20 +7,34 @@ inputs:
   target:
     description: "The name of the image to build."
     required: true
-  cache:
+  load:
     description: "Do we want to save the build to local cache"
-    required: true
+    required: false
+    default: "true"
   push:
     description: "Do we want to push the image to a registry"
+    required: false
+    default: "false"
+  aws-access-key:
+    description: "AWS Access key used for pushing to the registry"
+    required: false
+  aws-access-secret:
+    description: "AWS Access secret used for pushing to the registry"
+    required: false
+  aws-region:
+    description: "AWS region for the ECR registry"
+    required: false
+  cache-from:
+    description: "List of external cache sources (e.g., type=local,src=path/to/dir)"
     required: true
-outputs:
-  random-number:
-    description: "Random number"
-    value: ${{ steps.random-number-generator.outputs.random-id }}
+  cache-to:
+    description: "List of cache export destinations (e.g., type=local,dest=path/to/dir)"
+    required: true
 runs:
   using: "composite"
   steps:
     - name: Docker meta
+      if: inputs.push == 'true'
       id: meta
       uses: docker/metadata-action@v3
       with:
@@ -32,16 +46,38 @@ runs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v1
 
-    - name: Build image for testing
-      id: docker_build_testing_image
+    - name: Configure AWS credentials
+      if: inputs.push == 'true'
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ inputs.aws-access-key }}
+        aws-secret-access-key: ${{ inputs.aws-access-secret }}
+        aws-region: ${{ inputs.aws-region }}
+
+    - name: Login to Amazon ECR
+      if: inputs.push == 'true'
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+
+    - name: Set image tag
+      id: set-tag
+      uses: haya14busa/action-cond@v1
+      with:
+        cond: ${{ inputs.push == 'true' }}
+        if_true: ${{ steps.login-ecr.outputs.registry }}/${{ steps.meta.outputs.tags }}
+        if_false: ${{ inputs.image-name }}
+
+    - name: Build docker image
+      id: build-push
       uses: docker/build-push-action@v2
       with:
         context: .
         file: Dockerfile
         push: ${{ inputs.push }}
-        load: ${{ inputs.cache }}
+        load: ${{ inputs.load }}
+        tags: ${{ steps.set-tag.outputs.value }}
         cache-from: |
-          type=gha,scope=${{ inputs.image-name }}
+          ${{ inputs.cache-from }}
         cache-to: |
-          type=gha,scope=${{ inputs.image-name }}
-        target: ${{ inputs.image-name }}
+          ${{ inputs.cache-to }}
+        target: ${{ inputs.target }}
