@@ -5,16 +5,8 @@ inputs:
     description: "The name of the image to build."
     required: true
   target:
-    description: "The name of the image to build."
-    required: true
-  load:
-    description: "Do we want to save the build to local cache"
+    description: "The name of the image layer to build."
     required: false
-    default: "true"
-  push:
-    description: "Do we want to push the image to a registry"
-    required: false
-    default: "false"
   aws-access-key:
     description: "AWS Access key used for pushing to the registry"
     required: false
@@ -26,28 +18,37 @@ inputs:
     required: false
   cache-from:
     description: "List of external cache sources (e.g., type=local,src=path/to/dir)"
-    required: true
+    required: false
   cache-to:
     description: "List of cache export destinations (e.g., type=local,dest=path/to/dir)"
-    required: true
+    required: false
 runs:
   using: "composite"
   steps:
+    - name: Check if AWS login and push is required
+      id: aws-login
+      uses: haya14busa/action-cond@v1
+      with:
+        cond: ${{ inputs.aws-access-key != '' && inputs.aws-access-secret != '' && inputs.aws-region != '' }}
+        if_true: true
+        if_false: false
+
+    - name: Set image target
+      id: docker-target
+      uses: haya14busa/action-cond@v1
+      with:
+        cond: ${{ inputs.target != '' }}
+        if_true: ${{ inputs.target }}
+        if_false: ${{ inputs.image-name }}
+
     - name: Docker meta
-      if: inputs.push == 'true'
       id: meta
       uses: docker/metadata-action@v3
       with:
         images: ${{ inputs.image-name }}
 
-    - name: Checkout repository
-      uses: actions/checkout@v2
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v1
-
     - name: Configure AWS credentials
-      if: inputs.push == 'true'
+      if: steps.aws-login.outputs.value == true
       uses: aws-actions/configure-aws-credentials@v1
       with:
         aws-access-key-id: ${{ inputs.aws-access-key }}
@@ -55,7 +56,7 @@ runs:
         aws-region: ${{ inputs.aws-region }}
 
     - name: Login to Amazon ECR
-      if: inputs.push == 'true'
+      if: steps.aws-login.outputs.value == true
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v1
 
@@ -63,21 +64,27 @@ runs:
       id: set-tag
       uses: haya14busa/action-cond@v1
       with:
-        cond: ${{ inputs.push == 'true' }}
+        cond: ${{ steps.aws-login.outputs.value == true }}
         if_true: ${{ steps.login-ecr.outputs.registry }}/${{ steps.meta.outputs.tags }}
         if_false: ${{ inputs.image-name }}
 
-    - name: Build docker image
-      id: build-push
-      uses: docker/build-push-action@v2
-      with:
-        context: .
-        file: Dockerfile
-        push: ${{ inputs.push }}
-        load: ${{ inputs.load }}
-        tags: ${{ steps.set-tag.outputs.value }}
-        cache-from: |
-          ${{ inputs.cache-from }}
-        cache-to: |
-          ${{ inputs.cache-to }}
-        target: ${{ inputs.target }}
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v1
+
+    # - name: Build docker image
+    #   id: build-push
+    #   uses: docker/build-push-action@v2
+    #   with:
+    #     context: .
+    #     file: Dockerfile
+    #     push: ${{ inputs.push }}
+    #     load: ${{ inputs.load }}
+    #     tags: ${{ steps.set-tag.outputs.value }}
+    #     cache-from: |
+    #       ${{ inputs.cache-from }}
+    #     cache-to: |
+    #       ${{ inputs.cache-to }}
+    #     target: ${{ inputs.target }}
